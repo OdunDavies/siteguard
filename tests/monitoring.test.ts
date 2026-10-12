@@ -28,6 +28,14 @@ test("records successful and HTTP 500 observations without downloading a real re
   assert.equal(failed.errorMessage, "HTTP 500");
 });
 
+test("classifies a received HTTP 503 as an HTTP failure", async () => {
+  const failed = await performHealthCheck(example, {}, fakeNetwork(503));
+  assert.equal(failed.status, "unhealthy");
+  assert.equal(failed.httpStatus, 503);
+  assert.equal(failed.failureKind, "http_error");
+  assert.equal(failed.errorCode, "HTTP_ERROR");
+});
+
 test("classifies timeout and connection failure without exposing transport details", async () => {
   const timeout = await performHealthCheck(example, {}, {
     resolve: async () => [publicIp],
@@ -106,6 +114,51 @@ test("rejects a rebinding answer and pins the selected connection address", asyn
     assert.equal(address, publicIp);
     assert.equal(family, 4);
   });
+});
+
+test("pinned lookup returns the single validated IPv4 or IPv6 address in Node's requested shape", () => {
+  for (const [address, family] of [[publicIp, 4], ["2606:4700:4700::1111", 6]] as const) {
+    const lookup = createPinnedLookup("example.com", address);
+    lookup("example.com", { family }, (error, result, resultFamily) => {
+      assert.equal(error, null);
+      assert.equal(result, address);
+      assert.equal(resultFamily, family);
+    });
+    lookup("example.com", { all: true, family }, (error, result) => {
+      assert.equal(error, null);
+      assert.deepEqual(result, [{ address, family }]);
+    });
+    lookup("example.com", { all: true }, (error, result) => {
+      assert.equal(error, null);
+      assert.deepEqual(result, [{ address, family }]);
+    });
+  }
+});
+
+test("pinned lookup fails closed on wrong host, family mismatch, and invalid family", () => {
+  const lookup = createPinnedLookup("example.com", publicIp);
+  for (const [host, options] of [
+    ["other.example.com", { all: true }],
+    ["example.com", { family: 6 }],
+    ["example.com", { all: true, family: 7 }],
+  ] as const) {
+    lookup(host, options, (error, result) => {
+      assert.ok(error);
+      assert.deepEqual(result, options.all ? [] : "");
+    });
+  }
+  assert.throws(() => createPinnedLookup("example.com", "10.0.0.1"), MonitorNetworkError);
+  assert.throws(() => createPinnedLookup("example.com", "169.254.169.254"), MonitorNetworkError);
+});
+
+test("a mixed public and private DNS answer never reaches a socket", async () => {
+  let requested = false;
+  const result = await performHealthCheck(example, {}, {
+    resolve: async () => [publicIp, "10.0.0.1"],
+    requestHop: async () => { requested = true; return { statusCode: 503 }; },
+  });
+  assert.equal(result.errorCode, "UNSAFE_ADDRESS");
+  assert.equal(requested, false);
 });
 
 test("enforces response size errors from the pinned request adapter", async () => {

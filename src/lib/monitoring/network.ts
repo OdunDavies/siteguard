@@ -79,12 +79,19 @@ export function createPinnedLookup(hostname: string, address: string): LookupFun
   if (!family || !isPublicAddress(address)) {
     throw new MonitorNetworkError("unsafe_destination", "UNSAFE_ADDRESS", "Unsafe destination address");
   }
-  return (requestedHost, _options, callback) => {
+  return (requestedHost, options, callback) => {
+    const emptyResult = options.all ? [] : "";
     if (requestedHost !== hostname) {
-      callback(Object.assign(new Error("Hostname changed"), { code: "EHOSTUNREACH" }), "", 0);
+      callback(Object.assign(new Error("Hostname changed"), { code: "EHOSTUNREACH" }), emptyResult, 0);
       return;
     }
-    callback(null, address, family);
+    const requestedFamily = options.family === "IPv4" ? 4 : options.family === "IPv6" ? 6 : options.family ?? 0;
+    if (requestedFamily !== 0 && requestedFamily !== family) {
+      callback(Object.assign(new Error("Address family changed"), { code: "EAI_ADDRFAMILY" }), emptyResult, 0);
+      return;
+    }
+    // Node's connect path may request all:true; return only the validated, pinned IP.
+    callback(null, options.all ? [{ address, family }] : address, family);
   };
 }
 
