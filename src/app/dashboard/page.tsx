@@ -4,7 +4,7 @@ import { connection } from "next/server";
 import { createServerSupabaseClient } from "@/lib/database/server";
 import { authenticatedUser } from "@/lib/auth/session";
 import { loadDashboardSnapshot } from "@/lib/dashboard/snapshot";
-import { DashboardClient } from "./dashboard-client";
+import { GuidedDemo } from "./guided-demo";
 
 async function DashboardContent() {
   await connection();
@@ -13,7 +13,7 @@ async function DashboardContent() {
   if (!user) redirect("/login");
 
   const snapshot = await loadDashboardSnapshot({ supabase, userId: user.id });
-  return <DashboardClient initialSnapshot={snapshot} email={user.email ?? "Signed in"} />;
+  return <GuidedDemo initialSnapshot={snapshot} email={user.email ?? "Signed in"} />;
 }
 
 export default function DashboardPage() {

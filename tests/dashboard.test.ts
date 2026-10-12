@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activeGrant, canRunRecovery, dashboardCounts, latestDiagnosis } from "../src/lib/dashboard/view-model";
+import { activeGrant, canRunRecovery, dashboardCounts, demoStage, latestDiagnosis } from "../src/lib/dashboard/view-model";
 import type { DashboardSnapshot } from "../src/lib/dashboard/snapshot";
 
 const websiteId = "76d6efef-9c99-4525-a165-22af42342f09";
@@ -47,4 +47,40 @@ test("only a persisted, schema-valid diagnosis is presented", () => {
   };
   assert.equal(latestDiagnosis(data, incidentId)?.diagnosis.confidence, "medium");
   assert.equal(latestDiagnosis(data, "00000000-0000-4000-8000-000000000000"), null);
+});
+
+test("guided demo stages follow persisted state and never infer recovery from a healthy demo alone", () => {
+  const data = fixture();
+  const at = Date.parse("2026-10-12T11:30:00Z");
+  data.incidents = [];
+  data.demos[0].state = "healthy";
+  assert.equal(demoStage(data, websiteId, at), "healthy");
+  data.demos[0].state = "failed";
+  assert.equal(demoStage(data, websiteId, at), "failed");
+  data.incidents = fixture().incidents;
+  assert.equal(demoStage(data, websiteId, at), "detected");
+  data.runs.push({ id: "run", website_id: websiteId, incident_id: incidentId, status: "running", mode: "diagnosis", diagnosis_json: null, neatlogs_trace_id: null, started_at: "2026-10-12T11:05:00Z", finished_at: null });
+  assert.equal(demoStage(data, websiteId, at), "investigating");
+  data.runs[0].status = "diagnosed";
+  data.runs[0].diagnosis_json = {
+    agent_run_id: "fccf0ffc-f592-49c1-89ec-f655719437d2", incident_id: incidentId, website_id: websiteId,
+    incident_summary: "The service returned an error", observed_symptoms: ["HTTP 503"], probable_causes: [],
+    supporting_evidence: [], unknowns: ["Cause unconfirmed"], confidence: "medium", status: "inconclusive",
+    recommended_recovery_actions: [], risk_assessment: "Advisory", human_approval_required: true,
+    diagnosed_at: "2026-10-12T11:10:00Z",
+  };
+  assert.equal(demoStage(data, websiteId, at), "fix_ready");
+  data.grants.push({ id: "grant", website_id: websiteId, action_id: "reset_demo_service", resource_id: websiteId, enabled: true, expires_at: "2026-10-12T12:00:00Z", max_uses: 1, uses_count: 0, revoked_at: null });
+  assert.equal(demoStage(data, websiteId, at), "approved");
+  data.incidents[0].status = "recovering";
+  assert.equal(demoStage(data, websiteId, at), "restoring");
+  data.incidents[0].status = "recovered";
+  data.demos[0].state = "healthy";
+  assert.equal(demoStage(data, websiteId, at), "healthy");
+  data.runs.unshift({ ...data.runs[0], id: "recovery-run", mode: "recovery", status: "recovered" });
+  data.attempts.push({ id: "attempt", website_id: websiteId, agent_run_id: "recovery-run", status: "succeeded", action_id: "reset_demo_service", result_code: "ok", verification_check_id: "verified", requested_at: "2026-10-12T11:15:00Z" });
+  data.checks.unshift({ ...data.checks[0], id: "verified", status: "healthy", http_status: 200 });
+  assert.equal(demoStage(data, websiteId, at), "restored");
+  data.attempts[0].verification_check_id = null;
+  assert.equal(demoStage(data, websiteId, at), "healthy");
 });

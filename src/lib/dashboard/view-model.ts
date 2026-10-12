@@ -36,3 +36,29 @@ export function canRunRecovery(snapshot: DashboardSnapshot, websiteId: string, i
   return demo?.state === "failed" && incident?.status === "open" &&
     Boolean(activeGrant(snapshot, websiteId, now));
 }
+
+export type DemoStage = "setup" | "healthy" | "failed" | "detected" | "investigating" | "fix_ready" | "approved" | "restoring" | "restored" | "escalated";
+
+/** A presentation-only state derived from persisted records. */
+export function demoStage(snapshot: DashboardSnapshot, websiteId: string, now = Date.parse(snapshot.refreshedAt)): DemoStage {
+  const demo = snapshot.demos.find((item) => item.id === websiteId);
+  if (!demo) return "setup";
+  const incident = snapshot.incidents.find((item) => item.website_id === websiteId && ["open", "recovering"].includes(item.status))
+    ?? snapshot.incidents.find((item) => item.website_id === websiteId);
+  const run = incident && snapshot.runs.find((item) => item.incident_id === incident.id);
+  const attempt = run && snapshot.attempts.find((item) => item.agent_run_id === run.id);
+  const check = snapshot.checks.find((item) => item.website_id === websiteId);
+  if (demo.state === "healthy") {
+    if (incident?.status === "recovered" && attempt?.status === "succeeded" && attempt.verification_check_id &&
+      snapshot.checks.some((item) => item.id === attempt.verification_check_id && item.status === "healthy")) return "restored";
+    return "healthy";
+  }
+  if (incident?.status === "escalated" || run?.status === "escalated" || run?.status === "failed") return "escalated";
+  if (incident?.status === "recovering" || (run?.mode === "recovery" && run.status === "running")) return "restoring";
+  if (incident?.status !== "open") return "failed";
+  if (activeGrant(snapshot, websiteId, now) && latestDiagnosis(snapshot, incident.id)) return "approved";
+  if (latestDiagnosis(snapshot, incident.id)) return "fix_ready";
+  if (run?.mode === "diagnosis" && run.status === "running") return "investigating";
+  if (check?.status === "unhealthy" || check?.status === "error") return "detected";
+  return "failed";
+}
