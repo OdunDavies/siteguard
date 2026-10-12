@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import { assertSafePublicSupabaseKeys } from "./src/lib/database/env";
+
+assertSafePublicSupabaseKeys();
 
 const nextConfig: NextConfig = {
   /* config options here */
