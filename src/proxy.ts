@@ -7,5 +7,5 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   // Route Handlers can write refreshed cookies themselves; proxy is for future Server Components.
-  matcher: ["/dashboard/:path*"],
+  matcher: ["/dashboard/:path*", "/login"],
 };
